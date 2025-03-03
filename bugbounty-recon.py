@@ -39,9 +39,13 @@ args = parser.parse_args()
 if args.verbose:
     logging.getLogger().setLevel(logging.DEBUG)
 
+def log_info(message):
+    if args.verbose:
+        logging.info(message)
+
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
-    "subfinder_threads": 50,
+    "subfinder_threads": 100,
     "httpx_threads": 50,
     "httpx_timeout": 5,
     "katana_depth": 5,
@@ -59,7 +63,8 @@ DEFAULT_CONFIG = {
         "sort",
         "cut",
         "grep",
-        "cat"
+        "cat",
+        "timeout"
     ]
 }
 
@@ -119,6 +124,15 @@ def run_command(command, output_file=None, task_description="Processing", input_
                     else:
                         logging.debug(f"  - Input data: {content}")
         result = subprocess.run(command, shell=True, capture_output=True, text=True, errors='replace')
+        if output_file and os.path.exists(output_file) and count_lines(output_file) > 0:
+            lines = count_lines(output_file)
+            if args.verbose:
+                logging.debug(f"  - Result: {lines} lines written to {output_file}")
+                with open(output_file, 'r') as f:
+                    sample = '\n      '.join(f.read().splitlines()[:3])
+                    logging.debug(f"  - Sample output (first 3 lines): \n      {sample}")
+            log_info(f"✓ {task_description} completed - {lines} items processed in {time.time() - start_time:.2f}s")
+            return output_file
         if result.returncode != 0:
             error_msg = result.stderr.strip() or result.stdout.strip() or "Unknown error occurred"
             logging.error(f"Task failed: {task_description}\nError: {error_msg}")
@@ -136,14 +150,14 @@ def run_command(command, output_file=None, task_description="Processing", input_
                     with open(output_file, 'r') as f:
                         sample = '\n      '.join(f.read().splitlines()[:3])
                         logging.debug(f"  - Sample output (first 3 lines): \n      {sample}")
-            logging.info(f"✓ {task_description} completed - {lines} items processed in {time.time() - start_time:.2f}s")
+            log_info(f"✓ {task_description} completed - {lines} items processed in {time.time() - start_time:.2f}s")
             return output_file
         lines = len(result.stdout.splitlines())
         if args.verbose and lines > 0:
             logging.debug(f"  - Result: {lines} lines returned")
             sample_output = '\n      '.join(result.stdout.splitlines()[:3])
             logging.debug(f"  - Sample output (first 3 lines): \n      {sample_output}")
-        logging.info(f"✓ {task_description} completed - {lines} items processed in {time.time() - start_time:.2f}s")
+        log_info(f"✓ {task_description} completed - {lines} items processed in {time.time() - start_time:.2f}s")
         return result.stdout
     except Exception as e:
         logging.error(f"Exception in {task_description}: {str(e)}")
@@ -154,26 +168,29 @@ def run_parallel(commands, phase_name="Parallel tasks"):
     total_tasks = len(commands)
     successful_tasks = 0
     max_workers = min(os.cpu_count() * 2, total_tasks) or 4
-    logging.info(f"Starting {phase_name} ({total_tasks} tasks)")
-    logging.info("─" * 50)
+    log_info(f"Starting {phase_name} ({total_tasks} tasks)")
+    log_info("─" * 50)
     if args.verbose:
         logging.debug(f"[Phase: {phase_name}]")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(run_command, cmd['command'], cmd.get('output'), cmd.get('task'), cmd.get('input')): cmd for cmd in commands}
         for future in futures:
-            result = future.result()
-            if result:
-                successful_tasks += 1
-                results.append(result)
+            try:
+                result = future.result()
+                if result:
+                    successful_tasks += 1
+                    results.append(result)
+            except Exception as e:
+                logging.warning(f"Task {futures[future]['task']} failed with exception: {str(e)}. Continuing with other results.")
             progress = successful_tasks / total_tasks
             bar_length = 20
             filled = int(bar_length * progress)
             bar = "█" * filled + "─" * (bar_length - filled)
             logging.info(f"Progress: [{bar}] {successful_tasks}/{total_tasks} tasks ({progress * 100:.1f}%)")
 
-    logging.info(f"─" * 50)
-    logging.info(f"{phase_name} completed with {successful_tasks}/{total_tasks} successful tasks")
+    log_info("─" * 50)
+    log_info(f"{phase_name} completed with {successful_tasks}/{total_tasks} successful tasks")
     return results
 
 def normalize_url(url):
@@ -200,7 +217,7 @@ def merge_and_deduplicate(files, output_file):
     with open(output_file, 'w') as f:
         f.write('\n'.join(sorted(unique_urls)))
     lines = len(unique_urls)
-    logging.info(f"✓ URL merging and deduplication completed - {lines} unique URLs saved to {output_file}")
+    log_info(f"✓ URL merging and deduplication completed - {lines} unique URLs saved to {output_file}")
     if args.verbose:
         logging.debug(f"  - Result: {lines} unique URLs saved")
         with open(output_file, 'r') as f:
@@ -214,25 +231,43 @@ def validate_urls(input_file, output_file):
 
 def clean_domains(input_file, output_file):
     start_time = time.time()
-    domains = []
+    domains = set()  # 스키마 제거된 도메인
+    domains_with_scheme = set()  # 스키마 포함된 도메인
     if os.path.exists(input_file):
         with open(input_file, 'r') as f:
             for line in f:
                 domain = line.strip().split()[0] if line.strip() else None
-                if domain and '.' in domain:
-                    domains.append(domain)
+                if domain:
+                    domains_with_scheme.add(domain)  # 원본 저장
+                    # 스키마 제거
+                    for scheme in ('http://', 'https://'):
+                        if domain.startswith(scheme):
+                            domain = domain[len(scheme):]
+                            break
+                    if (
+                        '.' in domain and
+                        not domain.startswith('*') and  # 와일드카드 제외
+                        not '/' in domain and  # IP 범위 제외
+                        not domain.startswith('[')  # IPv6 제외
+                    ):
+                        domains.add(domain)
     if not domains:
         logging.warning(f"Cleaning produced an empty file. Using original domains from {input_file}.")
         shutil.copy(input_file, output_file)
+        shutil.copy(input_file, f"{os.path.splitext(output_file)[0]}_with_scheme.txt")
     else:
         with open(output_file, 'w') as f:
-            f.write('\n'.join(sorted(set(domains))))
+            f.write('\n'.join(sorted(domains)))
+        with open(f"{os.path.splitext(output_file)[0]}_with_scheme.txt", 'w') as f:
+            f.write('\n'.join(sorted(domains_with_scheme)))
     lines = count_lines(output_file)
-    logging.info(f"✓ Cleaning domains completed - {lines} items processed in {time.time() - start_time:.2f}s")
-    if args.verbose and lines > 0:
-        with open(output_file, 'r') as f:
-            sample = '\n      '.join(f.read().splitlines()[:3])
-            logging.debug(f"  - Sample cleaned domains (first 3): \n      {sample}")
+    lines_with_scheme = count_lines(f"{os.path.splitext(output_file)[0]}_with_scheme.txt")
+    log_info(f"✓ Cleaning domains completed - {lines} items processed (no scheme) and {lines_with_scheme} items (with scheme) in {time.time() - start_time:.2f}s")
+    if args.verbose:
+        logging.debug(f"  - Sample cleaned domains (no scheme, first 3): \n      {'\n      '.join(sorted(domains)[:3])}")
+        with open(f"{os.path.splitext(output_file)[0]}_with_scheme.txt", 'r') as f:
+            sample_with_scheme = '\n      '.join(f.read().splitlines()[:3])
+            logging.debug(f"  - Sample cleaned domains (with scheme, first 3): \n      {sample_with_scheme}")
     return output_file
 
 def automate_scan(domain):
@@ -251,22 +286,21 @@ def automate_scan(domain):
     merged_urls = f"{output_dir}/merged_urls.txt"
     validated_urls = f"{output_dir}/validated_urls.txt"
 
-    logging.info(f"Starting reconnaissance for {domain}")
-    logging.info("═" * 50)
+    log_info(f"Starting reconnaissance for {domain}")
+    log_info("═" * 50)
     initial_commands = [
-        {"command": f"subfinder -d {domain} -all -t {CONFIG['subfinder_threads']} -silent -nW", "output": subfinder_domains, "task": "Subdomain enumeration with subfinder"},
+        {"command": f"subfinder -d {domain} -t {CONFIG['subfinder_threads']} -silent -nW", "output": subfinder_domains, "task": "Subdomain enumeration with subfinder"},
         {"command": f"assetfinder -subs-only {domain}", "output": assetfinder_domains, "task": "Subdomain enumeration with assetfinder"},
-        {"command": f"amass enum -d {domain} -r {CONFIG['dns_resolvers']}", "output": amass_domains, "task": "Subdomain enumeration with amass"}
+        {"command": f"timeout 600s amass enum -d {domain} -r {CONFIG['dns_resolvers']} -v -o {amass_domains}", "output": amass_domains, "task": "Subdomain enumeration with amass"}
     ]
     subdomain_results = run_parallel(initial_commands, phase_name="Subdomain enumeration")
     if not subdomain_results:
         logging.error("No subdomains enumerated successfully. Aborting reconnaissance.")
         return
-    logging.info(f"Subdomain enumeration succeeded with {len(subdomain_results)} tools: {', '.join([os.path.basename(r) for r in subdomain_results])}")
 
-    logging.info("─" * 50)
+    log_info("─" * 50)
     merge_result = run_command(
-        f"sort -u -f {' '.join(subdomain_results)}",
+        rf"sort -u -f {' '.join(subdomain_results)} | grep -E '[a-zA-Z0-9.-]+\.[a-zA-Z]{{2,}}$' | grep -v '^\*'",
         merged_domains,
         "Merging subdomain results"
     )
@@ -275,7 +309,7 @@ def automate_scan(domain):
         return
 
     alive_result = run_command(
-        f"httpx -list {merged_domains} -threads {CONFIG['httpx_threads']} -timeout {CONFIG['httpx_timeout']} -silent",
+        f"httpx -list {merged_domains} -threads {CONFIG['httpx_threads']} -timeout {CONFIG['httpx_timeout']} -silent -mc 200,301,302",
         httpx_alive_domains,
         "Checking alive domains with httpx",
         input_file=merged_domains
@@ -296,12 +330,16 @@ def automate_scan(domain):
         logging.error("No valid domains available for URL crawling. Aborting reconnaissance.")
         return
 
-    logging.info("─" * 50)
+    if count_lines(cleaned_domains) == 0:
+        logging.error(f"No valid domains in {cleaned_domains}. Skipping URL crawling.")
+        return
+
+    log_info("─" * 50)
     exclude_filter = CONFIG['exclude_extensions'].replace(',', '|')
     scan_commands = [
-        {"command": f"cat {cleaned_domains} | waybackurls | grep -vE '\\.{exclude_filter}'", "output": wayback_urls, "task": "URL crawling with waybackurls", "input": cleaned_domains},
-        {"command": f"katana -list {cleaned_domains} -d {CONFIG['katana_depth']} -c {CONFIG['katana_concurrency']} -js-crawl", "output": katana_urls, "task": "URL crawling with katana", "input": cleaned_domains},
-        {"command": f"cat {cleaned_domains} | hakrawler -d 3", "output": hakrawler_urls, "task": "URL crawling with hakrawler", "input": cleaned_domains}
+        {"command": f"timeout 300s cat {httpx_alive_domains} | waybackurls | grep -vE '\\.{exclude_filter}'", "output": wayback_urls, "task": "URL crawling with waybackurls", "input": httpx_alive_domains},
+        {"command": f"katana -list {httpx_alive_domains} -d {CONFIG['katana_depth']} -c {CONFIG['katana_concurrency']} -js-crawl", "output": katana_urls, "task": "URL crawling with katana", "input": httpx_alive_domains},
+        {"command": f"cat {httpx_alive_domains} | hakrawler -d 3", "output": hakrawler_urls, "task": "URL crawling with hakrawler", "input": httpx_alive_domains}
     ]
     url_results = []
     for cmd in scan_commands:
@@ -314,7 +352,7 @@ def automate_scan(domain):
     if not url_results:
         logging.warning("No URLs crawled successfully. Proceeding with empty results.")
 
-    logging.info("─" * 50)
+    log_info("─" * 50)
     merge_urls_result = merge_and_deduplicate(url_results, merged_urls)
     if not merge_urls_result:
         logging.warning("No URLs to validate. Skipping validation step.")
