@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import subprocess
 import os
+import sys
 from concurrent.futures import ThreadPoolExecutor
 import argparse
 import logging
@@ -27,7 +28,8 @@ class ColoredFormatter(logging.Formatter):
 
 logging.basicConfig(
     level=logging.INFO,
-    handlers=[logging.StreamHandler()]
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True
 )
 logging.getLogger().handlers[0].setFormatter(ColoredFormatter())
 
@@ -38,10 +40,11 @@ args = parser.parse_args()
 
 if args.verbose:
     logging.getLogger().setLevel(logging.DEBUG)
+else:
+    logging.getLogger().setLevel(logging.INFO)
 
 def log_info(message):
-    if args.verbose:
-        logging.info(message)
+    logging.info(message)
 
 CONFIG_FILE = "config.json"
 DEFAULT_CONFIG = {
@@ -101,8 +104,7 @@ def run_command(command, output_file=None, task_description="Processing", input_
         return None
     if input_file and count_lines(input_file) == 0:
         logging.warning(f"Input file is empty for {task_description}: {input_file}")
-        if args.verbose:
-            logging.debug(f"  - Contents of empty input file {input_file}: (empty)")
+        logging.debug(f"  - Contents of empty input file {input_file}: (empty)")
     try:
         tools = [cmd.split()[0] for cmd in command.split('|')]
         valid_tools = [tool for tool in tools if tool in CONFIG['required_tools']]
@@ -111,49 +113,45 @@ def run_command(command, output_file=None, task_description="Processing", input_
             logging.error(f"Required tools not found for {task_description}: {', '.join(missing_tools)}")
             return None
         start_time = time.time()
-        if args.verbose:
-            logging.debug(f"  - Command: {command}")
-            if output_file:
-                logging.debug(f"  - Output file: {output_file}")
-            if input_file:
-                with open(input_file, 'r') as f:
-                    content = f.read().strip()
-                    if len(content.splitlines()) > 3:
-                        sample_lines = '\n      '.join(content.splitlines()[:3])
-                        logging.debug(f"  - Input data (first 3 lines): \n      {sample_lines} [... truncated]")
-                    else:
-                        logging.debug(f"  - Input data: {content}")
+        logging.debug(f"  - Command: {command}")
+        if output_file:
+            logging.debug(f"  - Output file: {output_file}")
+        if input_file:
+            with open(input_file, 'r') as f:
+                content = f.read().strip()
+                if len(content.splitlines()) > 3:
+                    sample_lines = '\n      '.join(content.splitlines()[:3])
+                    logging.debug(f"  - Input data (first 3 lines): \n      {sample_lines} [... truncated]")
+                else:
+                    logging.debug(f"  - Input data: {content}")
         result = subprocess.run(command, shell=True, capture_output=True, text=True, errors='replace')
         if output_file and os.path.exists(output_file) and count_lines(output_file) > 0:
             lines = count_lines(output_file)
-            if args.verbose:
-                logging.debug(f"  - Result: {lines} lines written to {output_file}")
-                with open(output_file, 'r') as f:
-                    sample = '\n      '.join(f.read().splitlines()[:3])
-                    logging.debug(f"  - Sample output (first 3 lines): \n      {sample}")
+            logging.debug(f"  - Result: {lines} lines written to {output_file}")
+            with open(output_file, 'r') as f:
+                sample = '\n      '.join(f.read().splitlines()[:3])
+                logging.debug(f"  - Sample output (first 3 lines): \n      {sample}")
             log_info(f"✓ {task_description} completed - {lines} items processed in {time.time() - start_time:.2f}s")
             return output_file
         if result.returncode != 0:
             error_msg = result.stderr.strip() or result.stdout.strip() or "Unknown error occurred"
             logging.error(f"Task failed: {task_description}\nError: {error_msg}")
-            if args.verbose:
-                logging.debug(f"  - Command stdout: {result.stdout[:200]} [...]")
-                logging.debug(f"  - Command stderr: {result.stderr[:200]} [...]")
+            logging.debug(f"  - Command stdout: {result.stdout[:200]} [...]")
+            logging.debug(f"  - Command stderr: {result.stderr[:200]} [...]")
             return None
         if output_file:
             with open(output_file, 'w') as f:
                 f.write(result.stdout)
             lines = count_lines(output_file)
-            if args.verbose:
-                logging.debug(f"  - Result: {lines} lines written to {output_file}")
-                if lines > 0:
-                    with open(output_file, 'r') as f:
-                        sample = '\n      '.join(f.read().splitlines()[:3])
-                        logging.debug(f"  - Sample output (first 3 lines): \n      {sample}")
+            logging.debug(f"  - Result: {lines} lines written to {output_file}")
+            if lines > 0:
+                with open(output_file, 'r') as f:
+                    sample = '\n      '.join(f.read().splitlines()[:3])
+                    logging.debug(f"  - Sample output (first 3 lines): \n      {sample}")
             log_info(f"✓ {task_description} completed - {lines} items processed in {time.time() - start_time:.2f}s")
             return output_file
         lines = len(result.stdout.splitlines())
-        if args.verbose and lines > 0:
+        if lines > 0:
             logging.debug(f"  - Result: {lines} lines returned")
             sample_output = '\n      '.join(result.stdout.splitlines()[:3])
             logging.debug(f"  - Sample output (first 3 lines): \n      {sample_output}")
@@ -170,8 +168,7 @@ def run_parallel(commands, phase_name="Parallel tasks"):
     max_workers = min(os.cpu_count() * 2, total_tasks) or 4
     log_info(f"Starting {phase_name} ({total_tasks} tasks)")
     log_info("─" * 50)
-    if args.verbose:
-        logging.debug(f"[Phase: {phase_name}]")
+    logging.debug(f"[Phase: {phase_name}]")
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(run_command, cmd['command'], cmd.get('output'), cmd.get('task'), cmd.get('input')): cmd for cmd in commands}
@@ -218,11 +215,10 @@ def merge_and_deduplicate(files, output_file):
         f.write('\n'.join(sorted(unique_urls)))
     lines = len(unique_urls)
     log_info(f"✓ URL merging and deduplication completed - {lines} unique URLs saved to {output_file}")
-    if args.verbose:
-        logging.debug(f"  - Result: {lines} unique URLs saved")
-        with open(output_file, 'r') as f:
-            sample = '\n      '.join(f.read().splitlines()[:3])
-            logging.debug(f"  - Sample URLs (first 3): \n      {sample}")
+    logging.debug(f"  - Result: {lines} unique URLs saved")
+    with open(output_file, 'r') as f:
+        sample = '\n      '.join(f.read().splitlines()[:3])
+        logging.debug(f"  - Sample URLs (first 3): \n      {sample}")
     return output_file
 
 def validate_urls(input_file, output_file):
@@ -231,24 +227,23 @@ def validate_urls(input_file, output_file):
 
 def clean_domains(input_file, output_file):
     start_time = time.time()
-    domains = set()  # 스키마 제거된 도메인
-    domains_with_scheme = set()  # 스키마 포함된 도메인
+    domains = set()
+    domains_with_scheme = set()
     if os.path.exists(input_file):
         with open(input_file, 'r') as f:
             for line in f:
                 domain = line.strip().split()[0] if line.strip() else None
                 if domain:
-                    domains_with_scheme.add(domain)  # 원본 저장
-                    # 스키마 제거
+                    domains_with_scheme.add(domain)
                     for scheme in ('http://', 'https://'):
                         if domain.startswith(scheme):
                             domain = domain[len(scheme):]
                             break
                     if (
                         '.' in domain and
-                        not domain.startswith('*') and  # 와일드카드 제외
-                        not '/' in domain and  # IP 범위 제외
-                        not domain.startswith('[')  # IPv6 제외
+                        not domain.startswith('*') and
+                        not '/' in domain and
+                        not domain.startswith('[')
                     ):
                         domains.add(domain)
     if not domains:
@@ -263,11 +258,10 @@ def clean_domains(input_file, output_file):
     lines = count_lines(output_file)
     lines_with_scheme = count_lines(f"{os.path.splitext(output_file)[0]}_with_scheme.txt")
     log_info(f"✓ Cleaning domains completed - {lines} items processed (no scheme) and {lines_with_scheme} items (with scheme) in {time.time() - start_time:.2f}s")
-    if args.verbose:
-        logging.debug(f"  - Sample cleaned domains (no scheme, first 3): \n      {'\n      '.join(sorted(domains)[:3])}")
-        with open(f"{os.path.splitext(output_file)[0]}_with_scheme.txt", 'r') as f:
-            sample_with_scheme = '\n      '.join(f.read().splitlines()[:3])
-            logging.debug(f"  - Sample cleaned domains (with scheme, first 3): \n      {sample_with_scheme}")
+    logging.debug(f"  - Sample cleaned domains (no scheme, first 3): \n      {'\n      '.join(sorted(domains)[:3])}")
+    with open(f"{os.path.splitext(output_file)[0]}_with_scheme.txt", 'r') as f:
+        sample_with_scheme = '\n      '.join(f.read().splitlines()[:3])
+        logging.debug(f"  - Sample cleaned domains (with scheme, first 3): \n      {sample_with_scheme}")
     return output_file
 
 def automate_scan(domain):
