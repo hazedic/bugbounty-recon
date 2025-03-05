@@ -332,8 +332,8 @@ def automate_scan(domain):
     exclude_filter = CONFIG['exclude_extensions'].replace(',', '|')
     scan_commands = [
         {"command": f"timeout 300s cat {httpx_alive_domains} | waybackurls | grep -vE '\\.{exclude_filter}'", "output": wayback_urls, "task": "URL crawling with waybackurls", "input": httpx_alive_domains},
-        {"command": f"katana -list {httpx_alive_domains} -d {CONFIG['katana_depth']} -c {CONFIG['katana_concurrency']} -js-crawl", "output": katana_urls, "task": "URL crawling with katana", "input": httpx_alive_domains},
-        {"command": f"cat {httpx_alive_domains} | hakrawler -d 3", "output": hakrawler_urls, "task": "URL crawling with hakrawler", "input": httpx_alive_domains}
+        {"command": f"katana -list {httpx_alive_domains} -d {CONFIG['katana_depth']} -c {CONFIG['katana_concurrency']} -js-crawl -ef {CONFIG['exclude_extensions']} -fs rdn", "output": katana_urls, "task": "URL crawling with katana", "input": httpx_alive_domains},
+        {"command": f"cat {httpx_alive_domains} | hakrawler -d 3 | grep -vE '\\.{exclude_filter}'", "output": hakrawler_urls, "task": "URL crawling with hakrawler", "input": httpx_alive_domains}
     ]
     url_results = []
     for cmd in scan_commands:
