@@ -10,8 +10,11 @@ from urllib.parse import urlparse
 import shutil
 import time
 from colorama import init, Fore, Style
+import requests
+import urllib3
 
 init()
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class ColoredFormatter(logging.Formatter):
     FORMATS = {
@@ -60,14 +63,15 @@ DEFAULT_CONFIG = {
         "assetfinder",
         "amass",
         "httpx",
-        "waybackurls",
+        "waymore",
         "katana",
-        "hakrawler",
+        "gospider",
         "sort",
         "cut",
         "grep",
         "cat",
-        "timeout"
+        "timeout",
+        "awk"
     ]
 }
 
@@ -97,6 +101,19 @@ def count_lines(file_path):
         with open(file_path, 'r') as f:
             return sum(1 for line in f if line.strip())
     return 0
+
+def is_contentless_redirect(url):
+    try:
+        response = requests.head(url, allow_redirects=False, timeout=5, verify=False)
+        return response.status_code in (301, 302, 303, 307, 308)
+    except requests.RequestException as e:
+        logging.warning(f"Failed to check {url} for content: {str(e)}")
+        return True
+
+def check_urls_content(urls):
+    with ThreadPoolExecutor(max_workers=min(20, len(urls))) as executor:
+        results = list(executor.map(is_contentless_redirect, urls))
+    return all(results)
 
 def run_command(command, output_file=None, task_description="Processing", input_file=None):
     if input_file and not os.path.exists(input_file):
@@ -136,8 +153,8 @@ def run_command(command, output_file=None, task_description="Processing", input_
         if result.returncode != 0:
             error_msg = result.stderr.strip() or result.stdout.strip() or "Unknown error occurred"
             logging.error(f"Task failed: {task_description}\nError: {error_msg}")
-            logging.debug(f"  - Command stdout: {result.stdout[:200]} [...]")
-            logging.debug(f"  - Command stderr: {result.stderr[:200]} [...]")
+            logging.debug(f"  - Command stdout: {result.stdout}")
+            logging.debug(f"  - Command stderr: {result.stderr}")
             return None
         if output_file:
             with open(output_file, 'w') as f:
@@ -200,7 +217,12 @@ def normalize_url(url):
         return None
 
 def merge_and_deduplicate(files, output_file):
-    if not files or not all(os.path.exists(f) for f in files):
+    if not files:
+        logging.warning("No files to merge. Creating empty output file.")
+        with open(output_file, 'w') as f:
+            f.write('')
+        return output_file
+    if not all(os.path.exists(f) for f in files):
         logging.error(f"Cannot merge files: One or more input files missing: {', '.join([f for f in files if not os.path.exists(f)])}")
         return None
     unique_urls = set()
@@ -221,49 +243,6 @@ def merge_and_deduplicate(files, output_file):
         logging.debug(f"  - Sample URLs (first 3): \n      {sample}")
     return output_file
 
-def validate_urls(input_file, output_file):
-    command = f"cat {input_file} | httpx -threads {CONFIG['httpx_threads']} -timeout {CONFIG['httpx_timeout']} -mc 200,301,302,403,404"
-    return run_command(command, output_file, task_description="Validating URLs with httpx", input_file=input_file)
-
-def clean_domains(input_file, output_file):
-    start_time = time.time()
-    domains = set()
-    domains_with_scheme = set()
-    if os.path.exists(input_file):
-        with open(input_file, 'r') as f:
-            for line in f:
-                domain = line.strip().split()[0] if line.strip() else None
-                if domain:
-                    domains_with_scheme.add(domain)
-                    for scheme in ('http://', 'https://'):
-                        if domain.startswith(scheme):
-                            domain = domain[len(scheme):]
-                            break
-                    if (
-                        '.' in domain and
-                        not domain.startswith('*') and
-                        not '/' in domain and
-                        not domain.startswith('[')
-                    ):
-                        domains.add(domain)
-    if not domains:
-        logging.warning(f"Cleaning produced an empty file. Using original domains from {input_file}.")
-        shutil.copy(input_file, output_file)
-        shutil.copy(input_file, f"{os.path.splitext(output_file)[0]}_with_scheme.txt")
-    else:
-        with open(output_file, 'w') as f:
-            f.write('\n'.join(sorted(domains)))
-        with open(f"{os.path.splitext(output_file)[0]}_with_scheme.txt", 'w') as f:
-            f.write('\n'.join(sorted(domains_with_scheme)))
-    lines = count_lines(output_file)
-    lines_with_scheme = count_lines(f"{os.path.splitext(output_file)[0]}_with_scheme.txt")
-    log_info(f"✓ Cleaning domains completed - {lines} items processed (no scheme) and {lines_with_scheme} items (with scheme) in {time.time() - start_time:.2f}s")
-    logging.debug(f"  - Sample cleaned domains (no scheme, first 3): \n      {'\n      '.join(sorted(domains)[:3])}")
-    with open(f"{os.path.splitext(output_file)[0]}_with_scheme.txt", 'r') as f:
-        sample_with_scheme = '\n      '.join(f.read().splitlines()[:3])
-        logging.debug(f"  - Sample cleaned domains (with scheme, first 3): \n      {sample_with_scheme}")
-    return output_file
-
 def automate_scan(domain):
     output_dir = f"scan_{domain}"
     os.makedirs(output_dir, exist_ok=True)
@@ -273,19 +252,23 @@ def automate_scan(domain):
     amass_domains = f"{output_dir}/amass_domains.txt"
     merged_domains = f"{output_dir}/merged_domains.txt"
     httpx_alive_domains = f"{output_dir}/httpx_alive_domains.txt"
-    cleaned_domains = f"{output_dir}/cleaned_domains.txt"
-    wayback_urls = f"{output_dir}/wayback_urls.txt"
+    waymore_urls = f"{output_dir}/waymore_urls.txt"
     katana_urls = f"{output_dir}/katana_urls.txt"
-    hakrawler_urls = f"{output_dir}/hakrawler_urls.txt"
+    gospider_urls = f"{output_dir}/gospider_urls.txt"
     merged_urls = f"{output_dir}/merged_urls.txt"
-    validated_urls = f"{output_dir}/validated_urls.txt"
 
     log_info(f"Starting reconnaissance for {domain}")
     log_info("═" * 50)
     initial_commands = [
-        {"command": f"subfinder -d {domain} -t {CONFIG['subfinder_threads']} -silent -nW", "output": subfinder_domains, "task": "Subdomain enumeration with subfinder"},
-        {"command": f"assetfinder -subs-only {domain}", "output": assetfinder_domains, "task": "Subdomain enumeration with assetfinder"},
-        {"command": f"timeout 600s amass enum -d {domain} -r {CONFIG['dns_resolvers']} -v -o {amass_domains}", "output": amass_domains, "task": "Subdomain enumeration with amass"}
+        {"command": f"subfinder -d {domain} -t {CONFIG['subfinder_threads']} -silent -nW", 
+         "output": subfinder_domains, 
+         "task": "Subdomain enumeration with subfinder"},
+        {"command": f"assetfinder -subs-only {domain}", 
+         "output": assetfinder_domains, 
+         "task": "Subdomain enumeration with assetfinder"},
+        {"command": f"timeout 600s amass enum -active -d {domain} -r {CONFIG['dns_resolvers']} -v | awk '{{print $1}}' | grep -v '^[0-9]' > {amass_domains}", 
+         "output": amass_domains, 
+         "task": "Subdomain enumeration with amass"}
     ]
     subdomain_results = run_parallel(initial_commands, phase_name="Subdomain enumeration")
     if not subdomain_results:
@@ -294,7 +277,7 @@ def automate_scan(domain):
 
     log_info("─" * 50)
     merge_result = run_command(
-        rf"sort -u -f {' '.join(subdomain_results)} | grep -E '[a-zA-Z0-9.-]+\.[a-zA-Z]{{2,}}$' | grep -v '^\*'",
+        rf"cat {subfinder_domains} {assetfinder_domains} {amass_domains} | awk '{{print $1}}' | grep -E '^[a-zA-Z0-9.-]+\.{domain}$' | sort -u -f | grep -v '^\*'",
         merged_domains,
         "Merging subdomain results"
     )
@@ -303,7 +286,7 @@ def automate_scan(domain):
         return
 
     alive_result = run_command(
-        f"httpx -list {merged_domains} -threads {CONFIG['httpx_threads']} -timeout {CONFIG['httpx_timeout']} -silent -mc 200,301,302",
+        rf"httpx -list {merged_domains} -threads {CONFIG['httpx_threads']} -timeout {CONFIG['httpx_timeout']} -silent -mc 200,301,302,304,307,308,403,401,503,500 -follow-redirects -cl | awk '{{print $1}}'",
         httpx_alive_domains,
         "Checking alive domains with httpx",
         input_file=merged_domains
@@ -313,30 +296,43 @@ def automate_scan(domain):
         shutil.copy(merged_domains, httpx_alive_domains)
         alive_result = httpx_alive_domains
 
-    cleaned_result = clean_domains(httpx_alive_domains, cleaned_domains)
-    if not cleaned_result or count_lines(cleaned_domains) == 0:
-        logging.warning("Cleaned domains file is empty. Falling back to httpx_alive_domains.")
-        cleaned_result = httpx_alive_domains
-        if count_lines(httpx_alive_domains) == 0:
-            logging.warning("httpx_alive_domains is also empty. Falling back to merged_domains.")
-            cleaned_result = merged_domains
-    if not cleaned_result or count_lines(cleaned_result) == 0:
+    if count_lines(httpx_alive_domains) == 0:
         logging.error("No valid domains available for URL crawling. Aborting reconnaissance.")
-        return
-
-    if count_lines(cleaned_domains) == 0:
-        logging.error(f"No valid domains in {cleaned_domains}. Skipping URL crawling.")
         return
 
     log_info("─" * 50)
     exclude_filter = CONFIG['exclude_extensions'].replace(',', '|')
+    gospider_output_dir = f"{output_dir}/gospider_output"
+    os.makedirs(gospider_output_dir, exist_ok=True)
+    
     scan_commands = [
-        {"command": f"timeout 300s cat {httpx_alive_domains} | waybackurls | grep -vE '\\.{exclude_filter}'", "output": wayback_urls, "task": "URL crawling with waybackurls", "input": httpx_alive_domains},
-        {"command": f"katana -list {httpx_alive_domains} -d {CONFIG['katana_depth']} -c {CONFIG['katana_concurrency']} -js-crawl -ef {CONFIG['exclude_extensions']} -fs rdn", "output": katana_urls, "task": "URL crawling with katana", "input": httpx_alive_domains},
-        {"command": f"cat {httpx_alive_domains} | hakrawler -d 3 | grep -vE '\\.{exclude_filter}'", "output": hakrawler_urls, "task": "URL crawling with hakrawler", "input": httpx_alive_domains}
+        {"command": rf"waymore -i {domain} -mode U -oU {waymore_urls}", 
+         "output": waymore_urls, 
+         "task": "URL crawling with waymore"},
+        {"command": f"katana -list {httpx_alive_domains} -d {CONFIG['katana_depth']} -c {CONFIG['katana_concurrency']} -js-crawl -ef {CONFIG['exclude_extensions']} -fs rdn", 
+         "output": katana_urls, 
+         "task": "URL crawling with katana", 
+         "input": httpx_alive_domains},
+        {"command": rf"gospider -S {httpx_alive_domains} -d 3 -c 20 -t 50 -o {gospider_output_dir} --whitelist-domain {domain} --blacklist {CONFIG['exclude_extensions']} --js > {gospider_urls} && cat {gospider_urls} | grep -E 'https?://[^ ]*\.{domain}' > {gospider_urls}.tmp && mv {gospider_urls}.tmp {gospider_urls}", 
+         "output": gospider_urls, 
+         "task": "URL crawling with gospider", 
+         "input": httpx_alive_domains}
     ]
     url_results = []
-    for cmd in scan_commands:
+    
+    waymore_cmd = scan_commands[0]
+    result = run_command(waymore_cmd['command'], waymore_cmd['output'], waymore_cmd['task'])
+    if result:
+        url_results.append(result)
+    else:
+        logging.warning(f"{waymore_cmd['task']} failed, but continuing with other tools.")
+
+    for cmd in scan_commands[1:]:
+        with open(cmd['input'], 'r') as f:
+            urls = [line.strip() for line in f if line.strip()]
+        if check_urls_content(urls):
+            logging.warning(f"Skipping {cmd['task']} as all input URLs ({', '.join(urls)}) are contentless redirects.")
+            continue
         result = run_command(cmd['command'], cmd['output'], cmd['task'], cmd['input'])
         if result:
             url_results.append(result)
@@ -349,18 +345,15 @@ def automate_scan(domain):
     log_info("─" * 50)
     merge_urls_result = merge_and_deduplicate(url_results, merged_urls)
     if not merge_urls_result:
-        logging.warning("No URLs to validate. Skipping validation step.")
+        logging.warning("No URLs collected. Reconnaissance completed with empty results.")
         return
 
-    validate_urls(merge_urls_result, validated_urls)
-
     logging.info("═" * 50)
-    logging.info(f"Reconnaissance completed! Final validated results saved in {validated_urls}")
+    logging.info(f"Reconnaissance completed! Final results saved in {merged_urls}")
     logging.info("Summary:")
     logging.info(f"  - Subdomains found: {count_lines(merged_domains)}")
     logging.info(f"  - Alive domains: {count_lines(httpx_alive_domains)}")
     logging.info(f"  - Total URLs crawled: {count_lines(merged_urls)}")
-    logging.info(f"  - Validated URLs: {count_lines(validated_urls)}")
     logging.info("═" * 50)
 
 if __name__ == "__main__":
