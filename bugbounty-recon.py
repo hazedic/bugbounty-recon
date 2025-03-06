@@ -65,13 +65,7 @@ DEFAULT_CONFIG = {
         "httpx",
         "waymore",
         "katana",
-        "gospider",
-        "sort",
-        "cut",
-        "grep",
-        "cat",
-        "timeout",
-        "awk"
+        "gospider"
     ]
 }
 
@@ -313,7 +307,7 @@ def automate_scan(domain):
          "output": katana_urls, 
          "task": "URL crawling with katana", 
          "input": httpx_alive_domains},
-        {"command": rf"gospider -S {httpx_alive_domains} -d 3 -c 20 -t 50 -o {gospider_output_dir} --whitelist-domain {domain} --blacklist {CONFIG['exclude_extensions']} --js > {gospider_urls} && cat {gospider_urls} | grep -E 'https?://[^ ]*\.{domain}' > {gospider_urls}.tmp && mv {gospider_urls}.tmp {gospider_urls}", 
+        {"command": rf"gospider -S {httpx_alive_domains} -d 5 -c 30 -t 20 -o {gospider_output_dir} --whitelist-domain {domain} --blacklist 'png|jpg|jpeg|gif|mp4|pdf' --js --sitemap --robots -a -w -r --subs -m 15 > {gospider_urls}", 
          "output": gospider_urls, 
          "task": "URL crawling with gospider", 
          "input": httpx_alive_domains}
