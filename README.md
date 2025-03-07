@@ -14,9 +14,9 @@ Before using this tool, ensure the following dependencies are installed on your 
 - assetfinder
 - amass
 - httpx
-- waybackurls
+- waymore
 - katana
-- hakrawler
+- gospider
 
 ## Installing Required Tools
 
@@ -65,11 +65,10 @@ $ go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
 $ sudo cp ~/go/bin/httpx /usr/local/bin/
 ```
 
-#### waybackurls
+#### waymore
 
 ```sh
-$ go install -v github.com/tomnomnom/waybackurls@latest
-$ sudo cp ~/go/bin/waybackurls /usr/local/bin/
+$ pip install git+https://github.com/xnl-h4ck3r/waymore.git -v
 ```
 
 #### katana
@@ -82,8 +81,8 @@ $ sudo cp ~/go/bin/katana /usr/local/bin/
 #### hakrawler
 
 ```sh
-$ go install -v github.com/hakluke/hakrawler@latest
-$ sudo cp ~/go/bin/hakrawler /usr/local/bin/
+$ go install -v github.com/jaeles-project/gospider@latest
+$ sudo cp ~/go/bin/gospider /usr/local/bin/
 ```
 
 ## Installation
@@ -114,13 +113,9 @@ The tool uses a config.json file for customization. If not present, default sett
         "assetfinder",
         "amass",
         "httpx",
-        "waybackurls",
+        "waymore",
         "katana",
-        "hakrawler",
-        "sort",
-        "cut",
-        "grep",
-        "cat"
+        "gospider"
     ]
 }
 ```
