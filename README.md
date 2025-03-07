@@ -17,6 +17,7 @@ Before using this tool, ensure the following dependencies are installed on your 
 - waymore
 - katana
 - gospider
+- gowitness
 
 ## Installing Required Tools
 
@@ -81,6 +82,12 @@ $ go install -v github.com/projectdiscovery/katana/cmd/katana@latest
 $ go install -v github.com/jaeles-project/gospider@latest
 ```
 
+#### gowitness
+
+```sh
+$ go install -v github.com/sensepost/gowitness@latest
+```
+
 ## Installation
 
 ```sh
@@ -104,6 +111,7 @@ The tool uses a config.json file for customization. If not present, default sett
     "katana_concurrency": 20,
     "exclude_extensions": "ttf,woff,woff2,svg,png,jpg,jpeg,gif,mp4,mp3,pdf,css,js,ico,eot",
     "dns_resolvers": "8.8.8.8,1.1.1.1",
+    "gowitness_timeout": 20,
     "required_tools": [
         "subfinder",
         "assetfinder",
@@ -111,7 +119,8 @@ The tool uses a config.json file for customization. If not present, default sett
         "httpx",
         "waymore",
         "katana",
-        "gospider"
+        "gospider",
+        "gowitness"
     ]
 }
 ```
@@ -123,6 +132,7 @@ The tool uses a config.json file for customization. If not present, default sett
 - `katana_concurrency`: Concurrent requests for `katana`.
 - `exclude_extensions`: File extensions to exclude from URL crawling.
 - `dns_resolvers`: DNS resolvers for `amass`.
+- `gowitness_timeout`: Timeout (in seconds) for `gowitness` screenshot capturing.
 
 ## Usage
 
@@ -138,4 +148,5 @@ positional arguments:
 options:
   -h, --help     show this help message and exit
   -v, --verbose  Show detailed command logs
+  -s, --screenshot  Take screenshots of all subdomains found for the target domain
 ```
