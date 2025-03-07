@@ -41,29 +41,27 @@ $ export PATH=$PATH:/usr/local/go/bin:$GOPATH/bin
 
 ```sh
 $ go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-$ sudo cp ~/go/bin/subfinder /usr/local/bin/
 ```
 
 #### assetfinder
 
 ```sh
 $ go install -v github.com/tomnomnom/assetfinder@latest
-$ sudo cp ~/go/bin/assetfinder /usr/local/bin/
 ```
 
 #### amass
 
 ```sh
 $ go install -v github.com/owasp-amass/amass/v3/...@latest
-$ sudo cp ~/go/bin/amass /usr/local/bin/
 ```
 
 #### httpx
 
 ```sh
 $ go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
-$ sudo cp ~/go/bin/httpx /usr/local/bin/
 ```
+
+**Note:** In the Kali Linux 2024.3 environment, httpx may exist in the /usr/bin directory, and you need to delete that file and install the httpx tool developed by ProjectDiscovery with the same name.
 
 #### waymore
 
@@ -75,14 +73,12 @@ $ pipx install git+https://github.com/xnl-h4ck3r/waymore.git
 
 ```sh
 $ go install -v github.com/projectdiscovery/katana/cmd/katana@latest
-$ sudo cp ~/go/bin/katana /usr/local/bin/
 ```
 
 #### gospider
 
 ```sh
 $ go install -v github.com/jaeles-project/gospider@latest
-$ sudo cp ~/go/bin/gospider /usr/local/bin/
 ```
 
 ## Installation
