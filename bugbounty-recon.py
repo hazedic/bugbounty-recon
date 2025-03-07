@@ -39,6 +39,7 @@ logging.getLogger().handlers[0].setFormatter(ColoredFormatter())
 parser = argparse.ArgumentParser(description="Automated reconnaissance tool to enumerate target domain assets")
 parser.add_argument("domain", help="Target domain (e.g., example.com)")
 parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed command logs")
+parser.add_argument("-s", "--screenshot", action="store_true", help="Take screenshots of all subdomains found for the target domain")
 args = parser.parse_args()
 
 if args.verbose:
@@ -58,6 +59,7 @@ DEFAULT_CONFIG = {
     "katana_concurrency": 20,
     "exclude_extensions": "ttf,woff,woff2,svg,png,jpg,jpeg,gif,mp4,mp3,pdf,css,js,ico,eot",
     "dns_resolvers": "8.8.8.8,1.1.1.1",
+    "gowitness_timeout": 20,
     "required_tools": [
         "subfinder",
         "assetfinder",
@@ -65,7 +67,8 @@ DEFAULT_CONFIG = {
         "httpx",
         "waymore",
         "katana",
-        "gospider"
+        "gospider",
+        "gowitness"
     ]
 }
 
@@ -250,6 +253,7 @@ def automate_scan(domain):
     katana_urls = f"{output_dir}/katana_urls.txt"
     gospider_urls = f"{output_dir}/gospider_urls.txt"
     merged_urls = f"{output_dir}/merged_urls.txt"
+    gowitness_db = f"{output_dir}/gowitness.sqlite3"
 
     log_info(f"Starting reconnaissance for {domain}")
     log_info("═" * 50)
@@ -342,12 +346,28 @@ def automate_scan(domain):
         logging.warning("No URLs collected. Reconnaissance completed with empty results.")
         return
 
+    if args.screenshot:
+        log_info("─" * 50)
+        log_info("Starting screenshot capture with gowitness")
+        gowitness_cmd = f"gowitness scan file -f {merged_domains} --save-content --write-db --write-db-uri sqlite://{gowitness_db} --screenshot-path {output_dir}/screenshots --timeout {CONFIG['gowitness_timeout']}"
+        run_command(
+            gowitness_cmd,
+            task_description="Capturing screenshots with gowitness",
+            input_file=merged_domains
+        )
+        if os.path.exists(gowitness_db):
+            log_info(f"✓ Screenshots captured and saved to {gowitness_db}")
+        else:
+            logging.warning("Gowitness failed to generate screenshots or database.")
+
     logging.info("═" * 50)
     logging.info(f"Reconnaissance completed! Final results saved in {merged_urls}")
     logging.info("Summary:")
     logging.info(f"  - Subdomains found: {count_lines(merged_domains)}")
     logging.info(f"  - Alive domains: {count_lines(httpx_alive_domains)}")
     logging.info(f"  - Total URLs crawled: {count_lines(merged_urls)}")
+    if args.screenshot and os.path.exists(gowitness_db):
+        logging.info(f"  - Screenshots saved: {gowitness_db}")
     logging.info("═" * 50)
 
 if __name__ == "__main__":
