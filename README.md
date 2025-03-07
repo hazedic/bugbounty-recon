@@ -78,7 +78,7 @@ $ go install -v github.com/projectdiscovery/katana/cmd/katana@latest
 $ sudo cp ~/go/bin/katana /usr/local/bin/
 ```
 
-#### hakrawler
+#### gospider
 
 ```sh
 $ go install -v github.com/jaeles-project/gospider@latest
