@@ -11,11 +11,8 @@
         "assetfinder",
         "amass",
         "httpx",
+	"waymore",
         "katana",
-        "hakrawler",
-        "sort",
-        "awk",
-        "grep",
-        "cat"
+        "gospider"
     ]
 }
