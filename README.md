@@ -68,7 +68,7 @@ $ sudo cp ~/go/bin/httpx /usr/local/bin/
 #### waymore
 
 ```sh
-$ pip install git+https://github.com/xnl-h4ck3r/waymore.git -v
+$ pipx install git+https://github.com/xnl-h4ck3r/waymore.git
 ```
 
 #### katana
