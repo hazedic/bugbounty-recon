@@ -18,6 +18,7 @@ Before using this tool, ensure the following dependencies are installed on your 
 - katana
 - gospider
 - gowitness
+- subzy
 
 ## Installing Required Tools
 
@@ -88,6 +89,12 @@ $ go install -v github.com/jaeles-project/gospider@latest
 $ go install -v github.com/sensepost/gowitness@latest
 ```
 
+#### subzy
+
+```sh
+$ go install -v github.com/PentestPad/subzy@latest
+```
+
 ## Installation
 
 ```sh
@@ -95,8 +102,6 @@ $ git clone https://github.com/hazedic/bugbounty-recon
 $ cd bugbounty-recon
 $ pip install -r requirements.txt
 ```
-
-**Note:** This tool has been tested for Installation on Kali Linux 2024.3
 
 ## Configuration
 
@@ -120,7 +125,8 @@ The tool uses a config.json file for customization. If not present, default sett
         "waymore",
         "katana",
         "gospider",
-        "gowitness"
+        "gowitness",
+        "subzy"
     ]
 }
 ```
