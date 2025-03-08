@@ -68,7 +68,8 @@ DEFAULT_CONFIG = {
         "waymore",
         "katana",
         "gospider",
-        "gowitness"
+        "gowitness",
+        "subzy"
     ]
 }
 
@@ -254,6 +255,7 @@ def automate_scan(domain):
     gospider_urls = f"{output_dir}/gospider_urls.txt"
     merged_urls = f"{output_dir}/merged_urls.txt"
     gowitness_db = f"{output_dir}/gowitness.sqlite3"
+    subzy_results = f"{output_dir}/subzy_results.txt"
 
     log_info(f"Starting reconnaissance for {domain}")
     log_info("═" * 50)
@@ -346,6 +348,22 @@ def automate_scan(domain):
         logging.warning("No URLs collected. Reconnaissance completed with empty results.")
         return
 
+    log_info("─" * 50)
+    log_info("Starting subdomain takeover check with subzy")
+    subzy_cmd = f"subzy run --targets {merged_domains} > {subzy_results}"
+    subzy_result = run_command(
+        subzy_cmd,
+        subzy_results,
+        "Checking for subdomain takeovers with subzy",
+        input_file=merged_domains
+    )
+    if subzy_result and os.path.exists(subzy_results):
+        takeover_count = count_lines(subzy_results)
+        log_info(f"✓ Subdomain takeover check completed - results saved to {subzy_results}")
+        logging.info(f"  - Potential takeovers found: {takeover_count}")
+    else:
+        logging.warning("Subzy failed to generate takeover results.")
+
     if args.screenshot:
         log_info("─" * 50)
         log_info("Starting screenshot capture with gowitness")
@@ -366,6 +384,8 @@ def automate_scan(domain):
     logging.info(f"  - Subdomains found: {count_lines(merged_domains)}")
     logging.info(f"  - Alive domains: {count_lines(httpx_alive_domains)}")
     logging.info(f"  - Total URLs crawled: {count_lines(merged_urls)}")
+    if subzy_result and os.path.exists(subzy_results):
+        logging.info(f"  - Subdomain takeover results: {subzy_results} ({count_lines(subzy_results)} potential issues)")
     if args.screenshot and os.path.exists(gowitness_db):
         logging.info(f"  - Screenshots saved: {gowitness_db}")
     logging.info("═" * 50)
